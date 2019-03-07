@@ -8,7 +8,6 @@ const schema = new Schema({
     unique: true
   },
   timings: [{
-    _id: false,
     starts: {
       type: String,
       required: true
@@ -20,4 +19,4 @@ const schema = new Schema({
   }]
 });
 
-exports.Video = mongoose.model("Video", schema);
+exports.Storage = mongoose.model("Storage", schema);
