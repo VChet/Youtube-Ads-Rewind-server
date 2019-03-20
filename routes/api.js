@@ -2,11 +2,11 @@ const express = require("express");
 const router = express.Router();
 
 const {
-  getList,
+  checkVideo,
   addTiming
 } = require("../api/videos");
 
-router.get("/videos", getList);
-router.post("/video/timing/add", addTiming);
+router.get("/video/check", checkVideo);
+router.post("/video/report", addTiming);
 
 module.exports = router;

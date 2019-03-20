@@ -1,5 +1,5 @@
 module.exports = {
-  getList,
+  checkVideo,
   addTiming
 };
 
@@ -10,10 +10,12 @@ const { Video } = require("../models/video");
 const { Channel } = require("../models/channel");
 const { Storage } = require("../models/storage");
 
-function getList(req, res) {
-  Video.find({}, (err, videos) => {
-    if (err) return res.status(500).json({err});
-    return res.status(200).json({ response: videos});
+function checkVideo(req, res) {
+  const { videoId } = req.query;
+  Video.findOne({ id: videoId }, (err, video) => {
+    if (err) return res.status(500).json({ err });
+    if (!video) return res.status(404).json({ error: "No advertisement data" });
+    return res.status(200).json({ response: video });
   });
 }
 
