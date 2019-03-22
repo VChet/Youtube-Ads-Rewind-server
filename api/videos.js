@@ -67,7 +67,65 @@ async function addTiming(req, res) {
     response: "Timing has been pushed to the existing storage",
     timings
   });
-  // 5. Otherwise, check existing storage to find duplicates
-  // TODO: Find duplicates and update main collection
-  console.log({ timings: storageVideo.timings });
+  // 5. Otherwise, find majority timings for this video in the storage
+  function findMajority(array) {
+    let counter = 0;
+    let majority_element;
+    for (let i = 0; i < array.length; i++) {
+      if (counter === 0) {
+        majority_element = array[i];
+        counter = 1;
+      } else if (array[i] === majority_element) {
+        counter++;
+      } else {
+        counter--;
+      }
+    }
+    return majority_element;
+  }
+
+  const startTimings = storageVideo.timings.map(t => t.starts);
+  const endTimings = storageVideo.timings.map(t => t.ends);
+  const majorityStart = findMajority(startTimings);
+  const majorityEnd = findMajority(endTimings);
+  console.log({ startTimings, endTimings });
+  console.log({ majorityStart, majorityEnd });
+  // 6. Push majority timing to the main collection
+  const newTiming = new Video({
+    id,
+    timings: {
+      starts: majorityStart,
+      ends: majorityEnd
+    }
+  });
+  newTiming.save(timingError => {
+    if (timingError) console.log("Error adding new timing", timingError);
+    console.log("New timing has been added to the main collection!", { id: newTiming.id, timing: newTiming.timings });
+    res.status(201).json({ response: "New timing has been added to the main collection" });
+  });
+  // 7. Remove these values from the storage
+  Storage.findOne({ id }).exec((err, storage) => {
+    // Find near values. For example 7 < timing < 13
+    let timingsToPull = [];
+    storage.timings.map(timing => {
+      const startCollision = timing.starts >= parseInt(majorityStart) - parseInt(config.timingDifference) && timing.starts <= parseInt(majorityStart) + parseInt(config.timingDifference);
+      const endCollision = timing.ends >= parseInt(majorityEnd) - parseInt(config.timingDifference) && timing.ends <= parseInt(majorityEnd) + parseInt(config.timingDifference);
+      if (startCollision && endCollision) {
+        timingsToPull.push(timing._id);
+      }
+    });
+
+    // Remove near values
+    Storage.findOneAndUpdate(
+      { id },
+      { $pull: {
+        timings: {
+          _id: { $in: timingsToPull }
+        }
+      }},
+      err => {
+        if (err) console.log({ err });
+      }
+    );
+  });
 }
