@@ -23,7 +23,7 @@ async function addTiming(req, res) {
   const { id, timings } = req.body;
   console.log({ ip: req.ip, id, timings});
   // 1. Check if we are ok to store videos from this channel
-  let channelId = await axios.get(`${config.youtube.api}/videos`, {
+  const channelId = await axios.get(`${config.youtube.api}/videos`, {
     params: {
       part: "snippet",
       id,
@@ -50,7 +50,7 @@ async function addTiming(req, res) {
     return;
   }
   // 2.2. Otherwise, push to the existing storage
-  const pushTiming = await Storage.findOneAndUpdate({ id }, { $push: { timings }});
+  await Storage.findOneAndUpdate({ id }, { $push: { timings }});
   console.log("Timing has been pushed to the existing storage", timings);
   // 3. Count timings for this video
   const pipeline = [
@@ -70,18 +70,18 @@ async function addTiming(req, res) {
   // 5. Otherwise, find majority timings for this video in the storage
   function findMajority(array) {
     let counter = 0;
-    let majority_element;
+    let majorityElement;
     for (let i = 0; i < array.length; i++) {
       if (counter === 0) {
-        majority_element = array[i];
+        majorityElement = array[i];
         counter = 1;
-      } else if (array[i] === majority_element) {
+      } else if (array[i] === majorityElement) {
         counter++;
       } else {
         counter--;
       }
     }
-    return majority_element;
+    return majorityElement;
   }
 
   const startTimings = storageVideo.timings.map(t => t.starts);
@@ -105,8 +105,9 @@ async function addTiming(req, res) {
   });
   // 7. Remove these values from the storage
   Storage.findOne({ id }).exec((err, storage) => {
+    if (err) console.error("Error finding storage by id", err);
     // Find near values. For example 7 < timing < 13
-    let timingsToPull = [];
+    const timingsToPull = [];
     storage.timings.map(timing => {
       const startCollision = timing.starts >= parseInt(majorityStart) - parseInt(config.timingDifference) && timing.starts <= parseInt(majorityStart) + parseInt(config.timingDifference);
       const endCollision = timing.ends >= parseInt(majorityEnd) - parseInt(config.timingDifference) && timing.ends <= parseInt(majorityEnd) + parseInt(config.timingDifference);
