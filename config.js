@@ -11,5 +11,9 @@ module.exports = {
   mongoUrl: "mongodb://localhost/youtube_ads",
   storageLimit: 10,
   timingDifference: 3,  // in seconds
+  youtube: {
+    api: "https://www.googleapis.com/youtube/v3",
+    key: "YOUR_KEY"
+  },
   ...overwriteConfig
 };
