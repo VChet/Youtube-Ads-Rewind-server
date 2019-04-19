@@ -10,11 +10,11 @@ const schema = new Schema({
   timings: [{
     _id: false,
     starts: {
-      type: String,
+      type: Number,
       required: true
     },
     ends: {
-      type: String,
+      type: Number,
       required: true
     }
   }]

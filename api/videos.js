@@ -62,8 +62,8 @@ async function addTiming(req, res) {
       if (collisionCheck(
         timings.starts,
         timings.ends,
-        parseInt(existingTiming.starts),
-        parseInt(existingTiming.ends)
+        existingTiming.starts,
+        existingTiming.ends
       )) {
         console.log("Collision with existing record");
         return collision = true;
@@ -171,8 +171,8 @@ async function addTiming(req, res) {
       if (collisionCheck(
         timing.starts,
         timing.ends,
-        parseInt(majorityStart),
-        parseInt(majorityEnd)
+        majorityStart,
+        majorityEnd
       )) {
         timingsToPull.push(timing._id);
       }
