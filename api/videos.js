@@ -3,8 +3,9 @@ module.exports = {
   addTiming
 };
 
-const axios = require("axios");
-const config = require("../config");
+const { storageLimit }  = require("../config");
+const { collisionCheck, findMajority } = require("./helpers");
+const { getChannelFromVideo } = require("./YTService");
 
 const { Video } = require("../models/video");
 const { Channel } = require("../models/channel");
@@ -19,39 +20,11 @@ function checkVideo(req, res) {
   });
 }
 
-function collisionCheck(timingStart, timingEnd, DBStart, DBEnd) {
-  // Find near values
-  // For example:
-  //   DBStart = 10, timingDifference = 3
-  //   Collision if 7 <= timingStart <= 13
-
-  const startCollision = (
-    timingStart >= DBStart - config.timingDifference &&
-    timingStart <= DBStart + config.timingDifference
-  );
-  const endCollision = (
-    timingEnd >= DBEnd - config.timingDifference &&
-    timingEnd <= DBEnd + config.timingDifference
-  );
-  return startCollision && endCollision;
-}
-
 async function addTiming(req, res) {
   const { id, timings } = req.body;
   console.log({ ip: req.ip, id, timings});
   // 1. Check if we are ok to store videos from this channel
-  const channelId = await axios.get(`${config.youtube.api}/videos`, {
-    params: {
-      part: "snippet",
-      id,
-      key: config.youtube.key
-    }
-  }).then(response => {
-    return response.data.items[0].snippet.channelId;
-  }).catch(error => {
-    console.log(error.response.data);
-  });
-
+  const channelId = await getChannelFromVideo(id);
   const channel = await Channel.findOne({channelId}).lean();
   if (!channel) return res.status(400).json({ response: "This channel is unavailable" });
   // 2. Find this timing in main collection
@@ -97,27 +70,11 @@ async function addTiming(req, res) {
   const timingsCounter = storageTimings[0].size;
   console.log({ timingsCounter });
   // 5. If storage limit is not exceeded - return message
-  if (timingsCounter < config.storageLimit) {
+  if (timingsCounter < storageLimit) {
     console.log("[Storage] Push timing", timings);
     return res.status(201).json({ response: "Timing has been pushed to the existing storage" });
   }
   // 6. Otherwise, find majority timings for this video in the storage
-  function findMajority(array) {
-    let counter = 0;
-    let majorityElement;
-    for (let i = 0; i < array.length; i++) {
-      if (counter === 0) {
-        majorityElement = array[i];
-        counter = 1;
-      } else if (array[i] === majorityElement) {
-        counter++;
-      } else {
-        counter--;
-      }
-    }
-    return majorityElement;
-  }
-
   const startTimings = storageVideo.timings.map(t => t.starts);
   const endTimings = storageVideo.timings.map(t => t.ends);
   const majorityStart = findMajority(startTimings);
