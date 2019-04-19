@@ -19,6 +19,23 @@ function checkVideo(req, res) {
   });
 }
 
+function collisionCheck(timingStart, timingEnd, DBStart, DBEnd) {
+  // Find near values
+  // For example:
+  //   DBStart = 10, timingDifference = 3
+  //   Collision if 7 <= timingStart <= 13
+
+  const startCollision = (
+    timingStart >= DBStart - config.timingDifference &&
+    timingStart <= DBStart + config.timingDifference
+  );
+  const endCollision = (
+    timingEnd >= DBEnd - config.timingDifference &&
+    timingEnd <= DBEnd + config.timingDifference
+  );
+  return startCollision && endCollision;
+}
+
 async function addTiming(req, res) {
   const { id, timings } = req.body;
   console.log({ ip: req.ip, id, timings});
@@ -37,22 +54,39 @@ async function addTiming(req, res) {
 
   const channel = await Channel.findOne({channelId}).lean();
   if (!channel) return res.status(400).json({ response: "This channel is unavailable" });
-  // 2. Check if this video is already stored in the storage
+  // 2. Find this timing in main collection
+  const mainVideo = await Video.findOne({ id }).lean();
+  if (mainVideo) {
+    let collision = false;
+    mainVideo.timings.map(async (existingTiming) => {
+      if (collisionCheck(
+        timings.starts,
+        timings.ends,
+        parseInt(existingTiming.starts),
+        parseInt(existingTiming.ends)
+      )) {
+        console.log("Collision with existing record");
+        return collision = true;
+      }
+    });
+    if (collision) return res.status(409).json({ error: "This timing is already tracked" });
+  }
+
+  // 3. Find this video in storage collection
   const storageVideo = await Storage.findOne({ id }).lean();
-  // 2.1. If not - add new record and return
+  // 3.1. If not found - add new record and return
   if (!storageVideo) {
     const newTiming = new Storage({ id, timings });
     newTiming.save(timingError => {
       if (timingError) console.log("Error adding new timing", timingError);
-      console.log("New timing has been added", { id, timings });
+      console.log("[Storage] New timing", { id, timings });
       res.status(201).json({ response: "New timing has been added to the storage" });
     });
     return;
   }
-  // 2.2. Otherwise, push to the existing storage
+  // 3.2. Otherwise, push to the existing storage
   await Storage.findOneAndUpdate({ id }, { $push: { timings }});
-  console.log("Timing has been pushed to the existing storage", timings);
-  // 3. Count timings for this video
+  // 4. Count timings for this video
   const pipeline = [
     { $match: { id } },
     { $project: {
@@ -62,12 +96,12 @@ async function addTiming(req, res) {
   const storageTimings = await Storage.aggregate(pipeline);
   const timingsCounter = storageTimings[0].size;
   console.log({ timingsCounter });
-  // 4. If storage limit is not exceeded - return message
-  if (timingsCounter < config.storageLimit) return res.status(201).json({
-    response: "Timing has been pushed to the existing storage",
-    timings
-  });
-  // 5. Otherwise, find majority timings for this video in the storage
+  // 5. If storage limit is not exceeded - return message
+  if (timingsCounter < config.storageLimit) {
+    console.log("[Storage] Push timing", timings);
+    return res.status(201).json({ response: "Timing has been pushed to the existing storage" });
+  }
+  // 6. Otherwise, find majority timings for this video in the storage
   function findMajority(array) {
     let counter = 0;
     let majorityElement;
@@ -88,30 +122,58 @@ async function addTiming(req, res) {
   const endTimings = storageVideo.timings.map(t => t.ends);
   const majorityStart = findMajority(startTimings);
   const majorityEnd = findMajority(endTimings);
-  console.log({ startTimings, endTimings });
-  console.log({ majorityStart, majorityEnd });
-  // 6. Push majority timing to the main collection
-  const newTiming = new Video({
-    id,
-    timings: {
-      starts: majorityStart,
-      ends: majorityEnd
-    }
-  });
-  newTiming.save(timingError => {
-    if (timingError) console.log("Error adding new timing", timingError);
-    console.log("New timing has been added to the main collection!", { id: newTiming.id, timing: newTiming.timings });
-    res.status(201).json({ response: "New timing has been added to the main collection" });
-  });
-  // 7. Remove these values from the storage
+  // console.log({ startTimings, endTimings });
+  // console.log({ majorityStart, majorityEnd });
+
+  // 7. Check if this video is already stored
+  if (mainVideo) {
+    // 7.1 If video exists in main collection - push to this record
+    Video.findByIdAndUpdate(
+      mainVideo._id,
+      { $push: {
+        timings: {
+          starts: majorityStart,
+          ends: majorityEnd
+        }
+      }},
+      (error, response) => {
+        if (error) console.error("Error updating main collection", error);
+        console.log("[Main] Push timing", {
+          id: mainVideo.id,
+          timings: {
+            starts: majorityStart,
+            ends: majorityEnd
+          }
+        });
+        res.status(200).json({ response: "New timing has been pushed to the main collection" });
+      }
+    );
+  } else {
+    // 7.2 Otherwise — create new record
+    const newTiming = new Video({
+      id,
+      timings: {
+        starts: majorityStart,
+        ends: majorityEnd
+      }
+    });
+    newTiming.save(timingError => {
+      if (timingError) console.log("Error adding new timing", timingError);
+      console.log("[Main] New timing", { id: newTiming.id, timing: newTiming.timings.toObject() });
+      res.status(201).json({ response: "New video has been added to the main collection" });
+    });
+  }
+  // 8. Remove added timings from the storage
   Storage.findOne({ id }).exec((err, storage) => {
     if (err) console.error("Error finding storage by id", err);
-    // Find near values. For example 7 < timing < 13
     const timingsToPull = [];
     storage.timings.map(timing => {
-      const startCollision = timing.starts >= parseInt(majorityStart) - parseInt(config.timingDifference) && timing.starts <= parseInt(majorityStart) + parseInt(config.timingDifference);
-      const endCollision = timing.ends >= parseInt(majorityEnd) - parseInt(config.timingDifference) && timing.ends <= parseInt(majorityEnd) + parseInt(config.timingDifference);
-      if (startCollision && endCollision) {
+      if (collisionCheck(
+        timing.starts,
+        timing.ends,
+        parseInt(majorityStart),
+        parseInt(majorityEnd)
+      )) {
         timingsToPull.push(timing._id);
       }
     });
